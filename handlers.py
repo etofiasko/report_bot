@@ -50,7 +50,6 @@ async def start_handler(message: types.Message, state: FSMContext, user=None):
     await state.update_data(region=region)
 
     keyboard = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-    # keyboard.add(KeyboardButton("Отмена"))
     for partner in partners:
         keyboard.add(KeyboardButton(partner))
 
