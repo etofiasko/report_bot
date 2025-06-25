@@ -54,34 +54,9 @@ async def start_handler(message: types.Message, state: FSMContext, user=None):
         keyboard.add(KeyboardButton(partner))
 
     await message.answer(
-        f"Добро пожаловать {username}.\n\nВыберите страну-партнёра для региона: {region}.",
+        f"Добро пожаловать, {username}.\nВыберите страну-партнёра для Республики Казахстан.",
         reply_markup=keyboard
     )
-    await ReportStates.choosing_partner.set()
-
-
-async def region_chosen_handler(message: types.Message, state: FSMContext):
-    text = message.text.strip()
-    region = message.text.strip()
-    
-    if region.lower() == "отмена":
-        await start_handler(message, state)
-        return
-
-    partners = get_partners(region)
-    if not partners:
-        await message.reply("Для этого региона нет данных по странам-партнёрам. Попробуйте выбрать другой регион.")
-        await start_handler(message, state)
-        return
-
-    await state.update_data(region=region.strip())
-    
-    keyboard = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-    keyboard.add(KeyboardButton("Отмена"))
-    for partner in partners:
-        keyboard.add(KeyboardButton(partner))
-
-    await message.answer("Выберите страну-партнёра:", reply_markup=keyboard)
     await ReportStates.choosing_partner.set()
 
 
@@ -93,15 +68,13 @@ async def partner_chosen_handler(message: types.Message, state: FSMContext):
         await start_handler(message, state)
         return
 
-    user_data = await state.get_data()
-    region = user_data.get("region")
-    partners = get_partners(region)
+    partners = get_partners()
 
     if text not in partners:
         await message.answer("Такого партнёра нет. Пожалуйста, выберите из предложенного списка.")
         return
 
-    years = get_years(region, partner)
+    years = get_years()
     if not years:
         await message.reply("Для этого региона и страны-партнёра нет данных по годам. Попробуйте выбрать другой регион.")
         await start_handler(message, state)
@@ -156,7 +129,7 @@ async def confirmation_handler(callback_query: types.CallbackQuery, state: FSMCo
         return
 
     if callback_query.data == "confirm":
-        await finalize_report(callback_query, state, callback_query.from_user)
+        await finalize_report(callback_query, state, user_message)
         return
 
     if callback_query.data == "advanced_settings":
@@ -242,7 +215,7 @@ async def category_settings_handler(message: types.Message, state: FSMContext):
         keyboard.add(KeyboardButton("1, 12 (По умолчанию)"))
 
         await message.answer(
-            "Введите нужный месяц в формате X или диапазон месяцев в формате X, Y. По умолчанию (1, 12):",
+            "Подкатегории отсутствуют. Введите нужный месяц в формате X или диапазон месяцев в формате X, Y. По умолчанию (1, 12):",
             reply_markup=keyboard
         )
         await ReportStates.choosing_months_settings.set()
@@ -311,7 +284,6 @@ async def months_settings_handler(message: types.Message, state: FSMContext):
                 return
         else:
             if not text.isdigit():
-
                 await message.answer("Введите нужный месяц в формате X или диапазон месяцев в формате X, Y. По умолчанию (1, 12):")
                 return
 
@@ -339,15 +311,15 @@ async def table_size_settings_handler(message: types.Message, state: FSMContext)
         return
     
     if message.text.strip() == "25 (По умолчанию)":
-        text = ''
+        text = '25'
     else:
         if not text.isdigit():
-            await message.answer("Пожалуйста, введите **число** от 10 до 50 или нажмите 'Отмена'.")
+            await message.answer("Пожалуйста, введите **число** от 10 до 100 или нажмите 'Отмена'.")
             return
 
         value = int(text)
-        if value < 10 or value > 50:
-            await message.answer("Число должно быть **в диапазоне от 10 до 50**. Попробуйте ещё раз.")
+        if value < 10 or value > 100:
+            await message.answer("Число должно быть **в диапазоне от 10 до 100**. Попробуйте ещё раз.")
             return
 
     await state.update_data(table_size=text)
@@ -364,8 +336,9 @@ async def finalize_report(msg_or_cbq, state, tg_user):
     subcategory = (data.get("subcategory") or None)
     months = str(data.get("months") or "")
     table_size = int(data.get("table_size") or 25)
+    await msg_or_cbq.answer(f"Идет генерация отчета. Пожалуйста, подождите.")
     try:
-        doc, filename = generate_trade_document(
+        doc, filename, short_filename = generate_trade_document(
             region=region,
             country_or_group=partner,
             year=year,
@@ -379,18 +352,16 @@ async def finalize_report(msg_or_cbq, state, tg_user):
         await msg_or_cbq.answer(str(e))
         return
     if filename != 'Данных нет':
-        await msg_or_cbq.answer(f"Идет генерация отчета. Пожалуйста, подождите.")
         buf = BytesIO()
         doc.save(buf)
         buf.seek(0)
 
         if isinstance(msg_or_cbq, types.CallbackQuery):
-            await msg_or_cbq.message.answer_document((filename, buf))
+            await msg_or_cbq.message.answer_document((short_filename, buf))
             await msg_or_cbq.message.answer(f"Ваш документ {filename} готов. Чтобы начать заново, нажмите /start")
         else:
-            await msg_or_cbq.answer_document((filename, buf))
+            await msg_or_cbq.answer_document((short_filename, buf))
             await msg_or_cbq.answer(f"Ваш документ {filename} готов. Чтобы начать заново, нажмите /start")
-
         await add_download_history(tg_user.id, tg_user.username, region, partner, year)
         await state.finish()
     else:

@@ -30,9 +30,9 @@ async def cmd_start(message: Message, state):
     await start_handler(message, state)
 
 
-@dp.message_handler(state=ReportStates.choosing_region)
-async def process_region(message: Message, state: FSMContext):
-    await region_chosen_handler(message, state)
+# @dp.message_handler(state=ReportStates.choosing_region)
+# async def process_region(message: Message, state: FSMContext):
+#     await region_chosen_handler(message, state)
 
 
 

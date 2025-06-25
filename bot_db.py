@@ -22,20 +22,10 @@ def get_regions():
     return regions
 
 
-def get_partners(region):
+def get_partners():
     conn = get_connection()
     cursor = conn.cursor()
 
-    cursor.execute("""
-        SELECT id FROM regions WHERE name = %s;
-    """, (region,))
-    region_row = cursor.fetchone()
-    if not region_row:
-        cursor.close()
-        conn.close()
-        return []
-
-    region_id = region_row[0]
     partners = ["весь мир"]   
     
     cursor.execute("""
@@ -51,9 +41,9 @@ def get_partners(region):
         SELECT DISTINCT c.name_ru
         FROM data d
         JOIN countries c ON d.country_id = c.id
-        WHERE d.region_id = %s
+        WHERE d.region_id = 1
         ORDER BY c.name_ru
-    """, (region_id,))
+    """)
     partners.extend(row[0] for row in cursor.fetchall())
 
     cursor.close()
@@ -61,7 +51,7 @@ def get_partners(region):
     return partners
 
 
-def get_years(region, partner):
+def get_years():
     conn = get_connection()
     cursor = conn.cursor()
 
