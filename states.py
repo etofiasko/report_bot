@@ -11,3 +11,4 @@ class ReportStates(StatesGroup):
     choosing_subcategory_settings = State()
     choosing_months_settings = State()
     choosing_table_size_settings = State()
+    waiting_for_access_data = State()

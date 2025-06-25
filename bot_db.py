@@ -38,11 +38,9 @@ def get_partners():
     partners.extend(row[0] for row in cursor.fetchall())
 
     cursor.execute("""
-        SELECT DISTINCT c.name_ru
-        FROM data d
-        JOIN countries c ON d.country_id = c.id
-        WHERE d.region_id = 1
-        ORDER BY c.name_ru
+        SELECT DISTINCT name_ru
+        FROM countries
+        ORDER BY name_ru
     """)
     partners.extend(row[0] for row in cursor.fetchall())
 
@@ -110,8 +108,8 @@ def setup_users_tables():
         CREATE TABLE IF NOT EXISTS users (
             id SERIAL PRIMARY KEY,
             telegram_id BIGINT UNIQUE,
-            username TEXT,
-            role TEXT CHECK (role IN ('admin', 'user')) NOT NULL DEFAULT 'user'
+            username TEXT UNIQUE,
+            role TEXT CHECK (role IN ('admin', 'advanced', 'user')) NOT NULL DEFAULT 'user'
         );
     """)
     conn.commit()
@@ -119,8 +117,7 @@ def setup_users_tables():
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS download_history (
             id SERIAL PRIMARY KEY,
-            telegram_id BIGINT,
-            username TEXT,
+            user_id INT,
             region TEXT,
             partner TEXT,
             year TEXT,
@@ -140,8 +137,8 @@ def register_user(telegram_id, username):
     cursor.execute("""
         INSERT INTO users (telegram_id, username)
         VALUES (%s, %s)
-        ON CONFLICT (telegram_id) DO UPDATE
-            SET username = EXCLUDED.username;
+        ON CONFLICT (username) DO UPDATE
+            SET telegram_id = EXCLUDED.telegram_id;
     """, (telegram_id, username))
     
     conn.commit()
@@ -163,16 +160,67 @@ def get_user_role(telegram_id):
     return row[0] if row else None
 
 
-async def add_download_history(telegram_id, username, region, partner, year):
-    if not username:
-        username = f"user_{telegram_id}"
-
+async def change_user_role(username, new_role):
     conn = get_users_connection()
     cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO download_history (telegram_id, username, region, partner, year)
-        VALUES (%s, %s, %s, %s, %s);
-    """, (telegram_id, username, region, partner, year))
+
+    cursor.execute("SELECT * FROM users WHERE username = %s;", (username.lower(),))
+    user = cursor.fetchone()
+
+    if user:
+        cursor.execute("""
+            UPDATE users SET role = %s WHERE username = %s AND role != 'admin';
+        """, (new_role, username.lower()))
+        if cursor.rowcount == 0:
+            reply = "Вы не можете изменить роль супер админа."
+        else:
+            reply = f"Роль пользователя @{username} успешно изменена на {new_role}."
+    else:
+        cursor.execute("""
+            INSERT INTO users (telegram_id, username, role)
+            VALUES (NULL, %s, %s);
+        """, (username.lower(), new_role))
+        reply = f"Пользователь @{username} добавлен с ролью {new_role}."
+
     conn.commit()
     cursor.close()
     conn.close()
+    return reply
+
+
+async def add_download_history(telegram_id, region, partner, year):
+    conn = get_users_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT id FROM users WHERE telegram_id = %s;
+    """, (telegram_id,))
+    user_id = cursor.fetchone()
+
+    cursor.execute("""
+        INSERT INTO download_history (user_id, region, partner, year)
+        VALUES (%s, %s, %s, %s);
+    """, (user_id[0], region, partner, year))
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+
+async def get_download_history():
+    conn = get_users_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT h.id, u.username, h.region, h.partner, h.year, h.downloaded_at
+        FROM download_history h
+        JOIN users u ON h.user_id = u.id  
+        ORDER BY h.downloaded_at DESC
+        LIMIT 10000;
+    """)
+    rows = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    reply = None
+    if not rows:
+        reply = "История скачиваний пуста."
+        return
+
+    return reply, rows

@@ -1,37 +1,17 @@
 import sys
 import os
+import pandas as pd
 from io import BytesIO
 from aiogram import types
 from aiogram.dispatcher import FSMContext
-from aiogram.types import Message, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, ReplyKeyboardRemove, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from states import ReportStates
-from bot_db import get_regions, get_partners, get_years, register_user, add_download_history, get_categories, get_subcategories
+from bot_db import get_partners, register_user, add_download_history, get_categories, get_subcategories, get_user_role, change_user_role, get_download_history
 from config import REPORT_MODULE_PATH
 
 sys.path.insert(0, REPORT_MODULE_PATH)
 
 from document_gen.generator import generate_trade_document
-
-# async def start_handler(message: types.Message, state: FSMContext, user=None):
-#     await state.finish()
-#     user = user or message.from_user
-#     telegram_id = user.id
-#     username = user.username or f"user_{telegram_id}"
-#     register_user(telegram_id, username)
-
-#     regions = get_regions()
-#     if not regions:
-#         await message.reply("На данный момент нет доступных данных.")
-#         await start_handler(message, state)
-#         return
-    
-#     keyboard = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-#     keyboard.add(KeyboardButton("Отмена"))
-#     # for region in regions:
-#     #     keyboard.add(KeyboardButton(region))
-#     keyboard.add(KeyboardButton("Республика Казахстан"))
-#     await message.answer(f"Добро пожаловать {username}.\n\nВыберите регион:", reply_markup=keyboard)
-#     await ReportStates.choosing_region.set()
 
 
 async def start_handler(message: types.Message, state: FSMContext, user=None):
@@ -39,54 +19,61 @@ async def start_handler(message: types.Message, state: FSMContext, user=None):
     user = user or message.from_user
     telegram_id = user.id
     username = user.username or f"user_{telegram_id}"
-    register_user(telegram_id, username)
+    register_user(telegram_id, username.strip().lower())
+    role = get_user_role(telegram_id)
+    if role in ['admin', 'advanced']:
+        region = "Республика Казахстан"
+        partners = get_partners()
+        if not partners:
+            await message.reply("Для этого региона нет данных по странам-партнёрам.")
+            return
 
-    region = "Республика Казахстан"
-    partners = get_partners(region)
-    if not partners:
-        await message.reply("Для этого региона нет данных по странам-партнёрам.")
+        await state.update_data(region=region)
+        await state.update_data(partner_list=partners)
+
+        keyboard = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+        for partner in partners:
+            keyboard.add(KeyboardButton(partner))
+
+        await message.answer(
+            f"Добро пожаловать, {username}.\n\nВыберите страну-партнёра для Республики Казахстан.",
+            reply_markup=keyboard
+        )
+        await ReportStates.choosing_partner.set()
+    else:
+        await message.reply("У вас нет прав для использования бота.")
         return
-
-    await state.update_data(region=region)
-
-    keyboard = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-    for partner in partners:
-        keyboard.add(KeyboardButton(partner))
-
-    await message.answer(
-        f"Добро пожаловать, {username}.\nВыберите страну-партнёра для Республики Казахстан.",
-        reply_markup=keyboard
-    )
-    await ReportStates.choosing_partner.set()
 
 
 async def partner_chosen_handler(message: types.Message, state: FSMContext):
     text = message.text.strip()
-    partner = message.text.strip()
     
-    if partner.lower() == "отмена":
-        await start_handler(message, state)
+    if text.lower() == "отмена":
+        await message.reply("Чтобы начать заново, нажмите /start")
+        await state.finish()
         return
+    data = await state.get_data()
 
-    partners = get_partners()
-
+    partners = data["partner_list"]
+    
     if text not in partners:
         await message.answer("Такого партнёра нет. Пожалуйста, выберите из предложенного списка.")
         return
-
-    years = get_years()
+    
+    years = ['2024','2025']
     if not years:
         await message.reply("Для этого региона и страны-партнёра нет данных по годам. Попробуйте выбрать другой регион.")
         await start_handler(message, state)
         return
-
-    await state.update_data(partner=partner.strip())
+    
+    await state.update_data(partner=text)
+    await state.update_data(year_list=years)
 
     keyboard = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
     keyboard.add(KeyboardButton("Отмена"))
     for year in years:
         keyboard.add(KeyboardButton(year))
-
+    
     await message.answer("Выберите год:", reply_markup=keyboard)
     await ReportStates.choosing_year.set()
 
@@ -97,13 +84,19 @@ async def year_chosen_handler(message: types.Message, state: FSMContext):
     if year.lower() == "отмена":
         await start_handler(message, state)
         return
+    
+    data = await state.get_data()
 
+    years = data["year_list"]
+    if year not in years:
+        await message.answer("Такого года нет. Пожалуйста, выберите из предложенного списка.")
+        return
     await state.update_data(year=year.strip())
 
     keyboard = InlineKeyboardMarkup()
     keyboard.add(
         InlineKeyboardButton("Подтвердить выбор", callback_data="confirm"),
-        InlineKeyboardButton("Расширенные настройки", callback_data="advanced_settings"),
+        # InlineKeyboardButton("Расширенные настройки", callback_data="advanced_settings"),
         InlineKeyboardButton("Отмена", callback_data="cancel")
     )
 
@@ -112,7 +105,8 @@ async def year_chosen_handler(message: types.Message, state: FSMContext):
         f"Регион: <b>{(await state.get_data()).get('region')}</b>\n"
         f"Страна-партнёр: <b>{(await state.get_data()).get('partner')}</b>\n"
         f"Год: <b>{year}</b>\n\n"
-        f"Пожалуйста, подтвердите выбор или настройте дополнительные параметры:",
+        # f"Пожалуйста, подтвердите выбор или настройте дополнительные параметры:",
+        f"Пожалуйста, подтвердите выбор:",
         parse_mode='HTML',
         reply_markup=keyboard
     )
@@ -129,16 +123,18 @@ async def confirmation_handler(callback_query: types.CallbackQuery, state: FSMCo
         return
 
     if callback_query.data == "confirm":
-        await finalize_report(callback_query, state, user_message)
+        await finalize_report(callback_query, state, callback_query.from_user)
         return
 
     if callback_query.data == "advanced_settings":
         keyboard = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
         keyboard.add(KeyboardButton("Отмена"))
-        keyboard.add(KeyboardButton("4 знака (По умолчанию)"))
+        keyboard.add(KeyboardButton("Пропустить"))
+        keyboard.add(KeyboardButton("4 знака"))
         keyboard.add(KeyboardButton("6 знаков"))
+        keyboard.add(KeyboardButton("10 знаков"))
         await callback_query.message.answer(
-            "Введите количество знаков 4 или 6:",
+            "Введите количество знаков 4, 6, 10 или пропустите данный шаг:",
             reply_markup=keyboard
         )
         await ReportStates.choosing_digit_settings.set()
@@ -150,18 +146,20 @@ async def digit_settings_handler(message: types.Message, state: FSMContext):
         await start_handler(message, state)
         return
     
-    if message.text.strip() == "4 знака (По умолчанию)":
+    if message.text.strip() == "4 знака" or message.text.strip() == "Пропустить":
             message.text = '4'
     elif message.text.strip() == "6 знаков":
             message.text = '6'
+    elif message.text.strip() == "10 знаков":
+            message.text = '10'
     else:
         if not text.isdigit():
-            await message.answer("Пожалуйста, введите **число** 4 или 6 или нажмите 'Отмена'.")
+            await message.answer("Пожалуйста, введите **число** 4, 6, 10 или пропустите данный шаг.")
             return
 
         value = int(text)
-        if value != 4 and value != 6:
-            await message.answer("Число должно быть 4 или 6. Попробуйте ещё раз.")
+        if value != 4 and value != 6 and value != 10:
+            await message.answer("Число должно быть 4, 6 или 10. Попробуйте ещё раз.")
             return
 
 
@@ -171,11 +169,11 @@ async def digit_settings_handler(message: types.Message, state: FSMContext):
 
     keyboard = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
     keyboard.add(KeyboardButton("Отмена"))
-    keyboard.add(KeyboardButton("Нет категории (По умолчанию)"))
+    keyboard.add(KeyboardButton("Нет категории"))
     for category in categories:
         keyboard.add(KeyboardButton(category))
     await message.answer(
-        "Введите категорию или по умолчанию (Нет категории):",
+        "Введите категорию или пропустите данный шаг:",
         reply_markup=keyboard
     )
     await ReportStates.choosing_category_settings.set()
@@ -188,14 +186,14 @@ async def category_settings_handler(message: types.Message, state: FSMContext):
         return
     
 
-    if text.strip().startswith("Нет категории (По умолчанию)"):
+    if text.strip().startswith("Нет категории"):
         await state.update_data(category='', subcategory='')
         keyboard = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
         keyboard.add(KeyboardButton("Отмена"))
-        keyboard.add(KeyboardButton("1, 12 (По умолчанию)"))
+        keyboard.add(KeyboardButton("Пропустить"))
 
         await message.answer(
-            "Введите нужный месяц в формате X или диапазон месяцев в формате X, Y. По умолчанию (1, 12):",
+            "Введите нужный месяц в формате X или диапазон месяцев в формате X, Y или пропустите данный шаг:",
             reply_markup=keyboard
         )
         await ReportStates.choosing_months_settings.set()
@@ -212,10 +210,10 @@ async def category_settings_handler(message: types.Message, state: FSMContext):
         await state.update_data(category='', subcategory='')
         keyboard = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
         keyboard.add(KeyboardButton("Отмена"))
-        keyboard.add(KeyboardButton("1, 12 (По умолчанию)"))
+        keyboard.add(KeyboardButton("Пропустить"))
 
         await message.answer(
-            "Подкатегории отсутствуют. Введите нужный месяц в формате X или диапазон месяцев в формате X, Y. По умолчанию (1, 12):",
+            "Подкатегории отсутствуют. Введите нужный месяц в формате X или диапазон месяцев в формате X, Y или пропустите данный шаг:",
             reply_markup=keyboard
         )
         await ReportStates.choosing_months_settings.set()
@@ -249,10 +247,10 @@ async def subcategory_settings_handler(message: types.Message, state: FSMContext
 
     keyboard = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
     keyboard.add(KeyboardButton("Отмена"))
-    keyboard.add(KeyboardButton("1, 12 (По умолчанию)"))
+    keyboard.add(KeyboardButton("Пропустить"))
 
     await message.answer(
-        "Введите нужный месяц в формате X или диапазон месяцев в формате X, Y. По умолчанию (1, 12):",
+        "Введите нужный месяц в формате X или диапазон месяцев в формате X, Y или пропустите данный шаг:",
         reply_markup=keyboard
     )
     await ReportStates.choosing_months_settings.set()
@@ -264,7 +262,7 @@ async def months_settings_handler(message: types.Message, state: FSMContext):
         await start_handler(message, state)
         return
     
-    if message.text.strip() == "1, 12 (По умолчанию)":
+    if message.text.strip() == "Пропустить":
         text = ''
     else:
         if "," in text:
@@ -284,7 +282,7 @@ async def months_settings_handler(message: types.Message, state: FSMContext):
                 return
         else:
             if not text.isdigit():
-                await message.answer("Введите нужный месяц в формате X или диапазон месяцев в формате X, Y. По умолчанию (1, 12):")
+                await message.answer("Введите нужный месяц в формате X или диапазон месяцев в формате X, Y или пропустите данный шаг:")
                 return
 
             month = int(text)
@@ -296,9 +294,9 @@ async def months_settings_handler(message: types.Message, state: FSMContext):
     
     keyboard = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
     keyboard.add(KeyboardButton("Отмена"))
-    keyboard.add(KeyboardButton("25 (По умолчанию)"))
+    keyboard.add(KeyboardButton("Пропустить"))
     await message.answer(
-        "Введите количество строк от 10 до 50 или по умолчанию (25):",
+        "Введите количество строк от 10 до 100 или пропустите данный шаг:",
         reply_markup=keyboard
     )
     await ReportStates.choosing_table_size_settings.set()
@@ -310,11 +308,11 @@ async def table_size_settings_handler(message: types.Message, state: FSMContext)
         await start_handler(message, state)
         return
     
-    if message.text.strip() == "25 (По умолчанию)":
+    if message.text.strip() == "Пропустить":
         text = '25'
     else:
         if not text.isdigit():
-            await message.answer("Пожалуйста, введите **число** от 10 до 100 или нажмите 'Отмена'.")
+            await message.answer("Пожалуйста, введите **число** от 10 до 100 или пропустите данный шаг.")
             return
 
         value = int(text)
@@ -327,8 +325,8 @@ async def table_size_settings_handler(message: types.Message, state: FSMContext)
 
 
 async def finalize_report(msg_or_cbq, state, tg_user):
+    telegram_id = tg_user.id
     data = await state.get_data()
-
     region = str(data["region"])
     partner = str(data["partner"])
     year = int(data["year"])
@@ -336,7 +334,10 @@ async def finalize_report(msg_or_cbq, state, tg_user):
     subcategory = (data.get("subcategory") or None)
     months = str(data.get("months") or "")
     table_size = int(data.get("table_size") or 25)
-    await msg_or_cbq.answer(f"Идет генерация отчета. Пожалуйста, подождите.")
+    if isinstance(msg_or_cbq, types.CallbackQuery):
+        await msg_or_cbq.message.answer(f"Идет генерация отчета. Пожалуйста, подождите.", reply_markup = ReplyKeyboardRemove())
+    else:
+        await msg_or_cbq.answer(f"Идет генерация отчета. Пожалуйста, подождите.", reply_markup = ReplyKeyboardRemove())
     try:
         doc, filename, short_filename = generate_trade_document(
             region=region,
@@ -362,7 +363,7 @@ async def finalize_report(msg_or_cbq, state, tg_user):
         else:
             await msg_or_cbq.answer_document((short_filename, buf))
             await msg_or_cbq.answer(f"Ваш документ {filename} готов. Чтобы начать заново, нажмите /start")
-        await add_download_history(tg_user.id, tg_user.username, region, partner, year)
+        await add_download_history(telegram_id, region, partner, year)
         await state.finish()
     else:
         if isinstance(msg_or_cbq, types.CallbackQuery):
@@ -370,3 +371,46 @@ async def finalize_report(msg_or_cbq, state, tg_user):
         else:
             await msg_or_cbq.answer(f"По выбранным фильтрам нет данных. Чтобы начать заново, нажмите /start")
         await state.finish()
+
+
+async def access_settings_handler(message: types.Message):
+    role = get_user_role(message.from_user.id)
+    if role != 'admin':
+        await message.answer("У вас нет прав для управления доступами.")
+        return
+    await ReportStates.waiting_for_access_data.set()
+    await message.answer(f"Введите данные в формате: \n@username роль \n<b>advanced</b> - доступ к боту \n<b>user</b> - нет доступа", parse_mode='html')
+
+async def handle_access_data(message: types.Message, state: FSMContext):
+    args = message.text.split()
+    if len(args) != 2:
+        await message.reply("Некорректный формат. Повторите снова. Укажите @username и роль \n<b>advanced</b> - доступ к боту \n<b>user</b> - нет доступа", parse_mode='html')
+        await state.finish()
+        return
+
+    username, new_role = args[0].strip().strip('@').lower(), args[1].strip().lower()
+    if new_role not in ['admin', 'advanced', 'user']:
+        await message.reply("Некорректная роль. Повторите снова. Доступные роли: \n<b>advanced</b> - доступ к боту \n<b>user</b> - нет доступа", parse_mode='html')
+        await state.finish()
+        return
+
+    await state.finish()
+    change_user_role_reply = await change_user_role(username, new_role)
+    await message.answer(f'{change_user_role_reply}')
+
+
+async def download_history_handler(message: types.Message):
+    role = get_user_role(message.from_user.id)
+    if role != 'admin':
+        await message.answer("У вас нет прав для просмотра истории.")
+        return
+
+    get_download_history_reply, get_download_history_rows = await get_download_history()
+
+    if get_download_history_reply:
+        await message.answer(f'{get_download_history_reply}')
+    df = pd.DataFrame(get_download_history_rows, columns=["ID", "Username", "Region", "Partner", "Year", "Downloaded At"])
+    output = BytesIO()
+    df.to_excel(output, index=False)
+    output.seek(0)
+    await message.answer_document(("download_history.xlsx", output))

@@ -2,7 +2,6 @@ from aiogram import Bot, Dispatcher, executor, types
 from config import API_TOKEN
 from handlers import (
     start_handler,
-    region_chosen_handler,
     partner_chosen_handler,
     year_chosen_handler,
     confirmation_handler,
@@ -10,7 +9,10 @@ from handlers import (
     category_settings_handler,
     subcategory_settings_handler,
     months_settings_handler,
-    table_size_settings_handler)
+    table_size_settings_handler,
+    access_settings_handler,
+    handle_access_data,
+    download_history_handler)
 from aiogram.types import Message
 from states import ReportStates
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
@@ -28,12 +30,6 @@ dp = Dispatcher(bot, storage=MemoryStorage())
 @dp.message_handler(commands=['start'], state='*')
 async def cmd_start(message: Message, state):
     await start_handler(message, state)
-
-
-# @dp.message_handler(state=ReportStates.choosing_region)
-# async def process_region(message: Message, state: FSMContext):
-#     await region_chosen_handler(message, state)
-
 
 
 @dp.message_handler(state=ReportStates.choosing_partner)
@@ -73,6 +69,18 @@ async def process_months_settings(message: Message, state: FSMContext):
 async def process_table_size_settings(message: Message, state: FSMContext):
     await table_size_settings_handler(message, state)
 
+
+@dp.message_handler(commands=['access_settings'])
+async def cmd_access_settings(message: Message):
+    await access_settings_handler(message)
+
+@dp.message_handler(state=ReportStates.waiting_for_access_data)
+async def process_access_settings(message: types.Message, state: FSMContext):
+    await handle_access_data(message, state)
+
+@dp.message_handler(commands=['history'])
+async def cmd_history(message: types.Message):
+    await download_history_handler(message)
 
 if __name__ == '__main__':
     executor.start_polling(dp, skip_updates=True)
