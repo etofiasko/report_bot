@@ -42,6 +42,16 @@ async def process_year(message: Message, state: FSMContext):
     await year_chosen_handler(message, state)
 
 
+@dp.message_handler(state=ReportStates.choosing_category_settings)
+async def process_category_settings(message: Message, state: FSMContext):
+    await category_settings_handler(message, state)
+
+
+@dp.message_handler(state=ReportStates.choosing_subcategory_settings)
+async def process_subcategory_settings(message: types.Message, state: FSMContext):
+    await subcategory_settings_handler(message, state)
+
+
 @dp.callback_query_handler(state=ReportStates.confirmation)
 async def process_confirmation(callback_query: types.CallbackQuery, state: FSMContext):
     await confirmation_handler(callback_query, state)
@@ -51,14 +61,6 @@ async def process_confirmation(callback_query: types.CallbackQuery, state: FSMCo
 async def process_digit_settings(message: Message, state: FSMContext):
     await digit_settings_handler(message, state)
 
-
-@dp.message_handler(state=ReportStates.choosing_category_settings)
-async def process_category_settings(message: Message, state: FSMContext):
-    await category_settings_handler(message, state)
-
-@dp.message_handler(state=ReportStates.choosing_subcategory_settings)
-async def process_subcategory_settings(message: types.Message, state: FSMContext):
-    await subcategory_settings_handler(message, state)
 
 @dp.message_handler(state=ReportStates.choosing_months_settings)
 async def process_months_settings(message: Message, state: FSMContext):

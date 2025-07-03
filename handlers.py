@@ -92,11 +92,108 @@ async def year_chosen_handler(message: types.Message, state: FSMContext):
         await message.answer("Такого года нет. Пожалуйста, выберите из предложенного списка.")
         return
     await state.update_data(year=year.strip())
+    categories = get_categories()
+
+    keyboard = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+    keyboard.add(KeyboardButton("Отмена"))
+    keyboard.add(KeyboardButton("Нет категории"))
+    for category in categories:
+        keyboard.add(KeyboardButton(category))
+    await message.answer(
+        "Введите категорию или пропустите данный шаг:",
+        reply_markup=keyboard
+    )
+    
+    await ReportStates.choosing_category_settings.set()
+        
+
+async def category_settings_handler(message: types.Message, state: FSMContext):
+    text = message.text.strip()
+    if message.text.lower() == "отмена":
+        await start_handler(message, state)
+        return
+    
+
+    if text.strip().startswith("Нет категории"):
+        await state.update_data(category='', subcategory='')
+        keyboard = InlineKeyboardMarkup()
+        keyboard.add(
+            InlineKeyboardButton("Подтвердить выбор", callback_data="confirm"),
+            InlineKeyboardButton("Расширенные настройки", callback_data="advanced_settings"),
+            InlineKeyboardButton("Отмена", callback_data="cancel")
+        )
+
+        await message.answer(
+            f"Вы выбрали:\n"
+            f"Регион: <b>{(await state.get_data()).get('region')}</b>\n"
+            f"Страна-партнёр: <b>{(await state.get_data()).get('partner')}</b>\n"
+            f"Год: <b>{(await state.get_data()).get('year')}</b>\n"
+            f"Категория: <b>Нет категории</b>\n\n"
+            f"Пожалуйста, подтвердите выбор или настройте дополнительные параметры:",
+            parse_mode='HTML',
+            reply_markup=keyboard
+        )
+        await ReportStates.confirmation.set()
+        return
+        
+    categories = get_categories()
+    if text not in categories:
+            await message.answer("Такой категории нет. Пожалуйста, выберите из предложенного списка.")
+            return
+    
+    subcats = get_subcategories(text)
+
+    if not subcats:
+        keyboard = InlineKeyboardMarkup()
+        keyboard.add(
+            InlineKeyboardButton("Подтвердить выбор", callback_data="confirm"),
+            InlineKeyboardButton("Расширенные настройки", callback_data="advanced_settings"),
+            InlineKeyboardButton("Отмена", callback_data="cancel")
+        )
+
+        await message.answer(
+            f"Вы выбрали:\n"
+            f"Регион: <b>{(await state.get_data()).get('region')}</b>\n"
+            f"Страна-партнёр: <b>{(await state.get_data()).get('partner')}</b>\n"
+            f"Год: <b>{(await state.get_data()).get('year')}</b>\n"
+            f"Категория: <b>Нет категории</b>\n\n"
+            f"Пожалуйста, подтвердите выбор или настройте дополнительные параметры:",
+            parse_mode='HTML',
+            reply_markup=keyboard
+        )
+        await ReportStates.confirmation.set()
+        return
+
+    keyboard = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+    keyboard.add(KeyboardButton("Отмена"))
+    for sc in subcats:
+        keyboard.add(KeyboardButton(sc))
+    await state.update_data(category=text)
+    await message.answer(
+        "Введите подкатегорию:",
+        reply_markup=keyboard
+    )
+    await ReportStates.choosing_subcategory_settings.set()
+
+
+async def subcategory_settings_handler(message: types.Message, state: FSMContext):
+    text = message.text.strip()
+    if message.text.lower() == "отмена":
+        await start_handler(message, state)
+        return
+    data = await state.get_data()
+    category = data.get("category")
+    subcategories = get_subcategories(category)
+    if text not in subcategories:
+            await message.answer("Такой подкатегории нет. Пожалуйста, выберите из предложенного списка.")
+            return
+
+    await state.update_data(subcategory=message.text.strip())
 
     keyboard = InlineKeyboardMarkup()
     keyboard.add(
         InlineKeyboardButton("Подтвердить выбор", callback_data="confirm"),
-        # InlineKeyboardButton("Расширенные настройки", callback_data="advanced_settings"),
+        InlineKeyboardButton("Расширенные настройки", callback_data="advanced_settings"),
         InlineKeyboardButton("Отмена", callback_data="cancel")
     )
 
@@ -104,9 +201,10 @@ async def year_chosen_handler(message: types.Message, state: FSMContext):
         f"Вы выбрали:\n"
         f"Регион: <b>{(await state.get_data()).get('region')}</b>\n"
         f"Страна-партнёр: <b>{(await state.get_data()).get('partner')}</b>\n"
-        f"Год: <b>{year}</b>\n\n"
-        # f"Пожалуйста, подтвердите выбор или настройте дополнительные параметры:",
-        f"Пожалуйста, подтвердите выбор:",
+        f"Год: <b>{(await state.get_data()).get('year')}</b>\n"
+        f"Категория: <b>{(await state.get_data()).get('category')}</b>\n"
+        f"Подкатегория: <b>{(await state.get_data()).get('subcategory')}</b>\n\n"
+        f"Пожалуйста, подтвердите выбор или настройте дополнительные параметры:",
         parse_mode='HTML',
         reply_markup=keyboard
     )
@@ -154,7 +252,7 @@ async def digit_settings_handler(message: types.Message, state: FSMContext):
             message.text = '10'
     else:
         if not text.isdigit():
-            await message.answer("Пожалуйста, введите **число** 4, 6, 10 или пропустите данный шаг.")
+            await message.answer("Пожалуйста, введите число 4, 6, 10 или пропустите данный шаг.")
             return
 
         value = int(text)
@@ -162,89 +260,7 @@ async def digit_settings_handler(message: types.Message, state: FSMContext):
             await message.answer("Число должно быть 4, 6 или 10. Попробуйте ещё раз.")
             return
 
-
     await state.update_data(digit=message.text.strip())
-    
-    categories = get_categories()
-
-    keyboard = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-    keyboard.add(KeyboardButton("Отмена"))
-    keyboard.add(KeyboardButton("Нет категории"))
-    for category in categories:
-        keyboard.add(KeyboardButton(category))
-    await message.answer(
-        "Введите категорию или пропустите данный шаг:",
-        reply_markup=keyboard
-    )
-    await ReportStates.choosing_category_settings.set()
-
-
-async def category_settings_handler(message: types.Message, state: FSMContext):
-    text = message.text.strip()
-    if message.text.lower() == "отмена":
-        await start_handler(message, state)
-        return
-    
-
-    if text.strip().startswith("Нет категории"):
-        await state.update_data(category='', subcategory='')
-        keyboard = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-        keyboard.add(KeyboardButton("Отмена"))
-        keyboard.add(KeyboardButton("Пропустить"))
-
-        await message.answer(
-            "Введите нужный месяц в формате X или диапазон месяцев в формате X, Y или пропустите данный шаг:",
-            reply_markup=keyboard
-        )
-        await ReportStates.choosing_months_settings.set()
-        return
-    categories = get_categories()
-    if text not in categories:
-            await message.answer("Такой категории нет. Пожалуйста, выберите из предложенного списка.")
-            return
-    
-
-    subcats = get_subcategories(text)
-
-    if not subcats:
-        await state.update_data(category='', subcategory='')
-        keyboard = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-        keyboard.add(KeyboardButton("Отмена"))
-        keyboard.add(KeyboardButton("Пропустить"))
-
-        await message.answer(
-            "Подкатегории отсутствуют. Введите нужный месяц в формате X или диапазон месяцев в формате X, Y или пропустите данный шаг:",
-            reply_markup=keyboard
-        )
-        await ReportStates.choosing_months_settings.set()
-        return
-
-    keyboard = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-    keyboard.add(KeyboardButton("Отмена"))
-    for sc in subcats:
-        keyboard.add(KeyboardButton(sc))
-    await state.update_data(category=text)
-    await message.answer(
-        "Введите подкатегорию:",
-        reply_markup=keyboard
-    )
-    await ReportStates.choosing_subcategory_settings.set()
-
-
-async def subcategory_settings_handler(message: types.Message, state: FSMContext):
-    text = message.text.strip()
-    if message.text.lower() == "отмена":
-        await start_handler(message, state)
-        return
-    data = await state.get_data()
-    category = data.get("category")
-    subcategories = get_subcategories(category)
-    if text not in subcategories:
-            await message.answer("Такой подкатегории нет. Пожалуйста, выберите из предложенного списка.")
-            return
-
-    await state.update_data(subcategory=message.text.strip())
-
     keyboard = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
     keyboard.add(KeyboardButton("Отмена"))
     keyboard.add(KeyboardButton("Пропустить"))
@@ -312,12 +328,12 @@ async def table_size_settings_handler(message: types.Message, state: FSMContext)
         text = '25'
     else:
         if not text.isdigit():
-            await message.answer("Пожалуйста, введите **число** от 10 до 100 или пропустите данный шаг.")
+            await message.answer("Пожалуйста, введите число от 10 до 100 или пропустите данный шаг.")
             return
 
         value = int(text)
         if value < 10 or value > 100:
-            await message.answer("Число должно быть **в диапазоне от 10 до 100**. Попробуйте ещё раз.")
+            await message.answer("Число должно быть в диапазоне от 10 до 100. Попробуйте ещё раз.")
             return
 
     await state.update_data(table_size=text)
