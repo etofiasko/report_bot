@@ -9,7 +9,10 @@ from handlers import (
     category_settings_handler,
     subcategory_settings_handler,
     months_settings_handler,
+    exclude_tnved_settings_handler,
     table_size_settings_handler,
+    country_table_size_settings_handler,
+    text_size_settings_handler,
     access_settings_handler,
     handle_access_data,
     download_history_handler)
@@ -67,9 +70,24 @@ async def process_months_settings(message: Message, state: FSMContext):
     await months_settings_handler(message, state)
 
 
+@dp.message_handler(state=ReportStates.choosing_exclude_tnved_settings)
+async def process_exclude_tnved_settings(message: Message, state: FSMContext):
+    await exclude_tnved_settings_handler(message, state)
+
+
 @dp.message_handler(state=ReportStates.choosing_table_size_settings)
 async def process_table_size_settings(message: Message, state: FSMContext):
     await table_size_settings_handler(message, state)
+
+
+@dp.message_handler(state=ReportStates.choosing_country_table_size_settings)
+async def process_country_table_size_settings(message: Message, state: FSMContext):
+    await country_table_size_settings_handler(message, state)
+
+
+@dp.message_handler(state=ReportStates.choosing_text_size_settings)
+async def process_text_size_settings(message: Message, state: FSMContext):
+    await text_size_settings_handler(message, state)
 
 
 @dp.message_handler(commands=['access_settings'])
