@@ -1,4 +1,5 @@
 from aiogram import Bot, Dispatcher, executor, types
+import pandas as pd 
 from config import API_TOKEN
 from handlers import (
     start_handler,
